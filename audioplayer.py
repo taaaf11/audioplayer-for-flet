@@ -32,6 +32,9 @@ class AudioPlayer(ft.Container):
             and not os.path.isdir(os.path.join(self.src_dir, folder_content))
         ]
 
+        self.song_name = ft.Text(
+            self._sep_file_ext(os.path.basename(self.src_dir_contents[self.curr_idx]))
+        )
         self.seek_bar = ft.ProgressBar(width=self.controls_width)
 
         # for elapsed time and duration
@@ -96,7 +99,17 @@ class AudioPlayer(ft.Container):
             margin=0,
         )
 
-        self.contents = [self.seek_bar, self.times_row, self.play_controls]
+        self.contents = [
+            # using container for text alignment center purposes
+            ft.Container(
+                self.song_name,
+                alignment=ft.alignment.center,
+                width=controls_width
+            ),
+            self.seek_bar,
+            self.times_row,
+            self.play_controls,
+        ]
 
         self.content = ft.Column(
             self.contents,
@@ -138,7 +151,10 @@ class AudioPlayer(ft.Container):
             if idx <= 0:
                 idx = 0
 
+        self.curr_idx = idx
+
         self.audio.src = os.path.join(self.src_dir, self.src_dir_contents[idx])
+        self.song_name.value = self._sep_file_ext(os.path.basename(self.audio.src))
 
         self.page_.overlay.append(self.audio)
         self.play_pause_btn.icon = ft.icons.PAUSE
@@ -179,6 +195,14 @@ class AudioPlayer(ft.Container):
 
         self.page_.update()
 
+    @staticmethod
+    def _sep_file_ext(filename: str):
+        split_ = filename.split(".")
+        if len(split_) > 2:
+            return ".".join(split_[:-1])
+        else:
+            return split_[0]
+
     def _format_timedelta_str(self, timedelta_str: str):
         full_time = timedelta_str.split(":")
         seconds_field = full_time[-1]
@@ -196,17 +220,3 @@ class AudioPlayer(ft.Container):
             del full_time[0]
 
         return ":".join(full_time)
-
-
-# def main(page: ft.Page):
-#     page.vertical_alignment = ft.MainAxisAlignment.CENTER
-
-#     page.theme = ft.Theme(color_scheme_seed="Pink")
-#     page.add(
-#         AudioPlayer(
-#             page=page, src_dir="C:\\Users\\Altaaf\\Music", controls_width=page.width / 2, controls_vertical_alignment=ft.MainAxisAlignment.CENTER, controls_horizontal_alignment=ft.CrossAxisAlignment.CENTER
-#         )
-#     )
-
-
-# ft.app(main)

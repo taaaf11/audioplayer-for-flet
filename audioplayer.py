@@ -32,9 +32,7 @@ class AudioPlayer(ft.Container):
             and not os.path.isdir(os.path.join(self.src_dir, folder_content))
         ]
 
-        self.song_name = ft.Text(
-            self._sep_file_ext(os.path.basename(self.src_dir_contents[self.curr_idx]))
-        )
+        self.curr_song_name = self.src_dir_contents[self.curr_idx]
         self.seek_bar = ft.ProgressBar(width=self.controls_width)
 
         # for elapsed time and duration
@@ -99,17 +97,7 @@ class AudioPlayer(ft.Container):
             margin=0,
         )
 
-        self.contents = [
-            # using container for text alignment center purposes
-            ft.Container(
-                self.song_name,
-                alignment=ft.alignment.center,
-                width=controls_width
-            ),
-            self.seek_bar,
-            self.times_row,
-            self.play_controls,
-        ]
+        self.contents = [self.seek_bar, self.times_row, self.play_controls]
 
         self.content = ft.Column(
             self.contents,
@@ -120,6 +108,10 @@ class AudioPlayer(ft.Container):
         self.audio = ft.Audio(
             src=self.src_dir_contents[self.curr_idx],
             volume=1,
+            on_loaded=self._show_controls,
+            on_state_changed=lambda _: setattr(
+                self, "curr_state", _.data
+            ),  # equivalent of self.curr_state = _.data
             on_position_changed=self._update_controls,
         )
         self.page_.overlay.append(self.audio)
@@ -141,6 +133,11 @@ class AudioPlayer(ft.Container):
         self.audio.update()
 
     def prev_next_music(self, e):
+        old_audio_src = self.audio.src
+        try:
+            old_audio_state = self.curr_state
+        except:  # when user has not changed the state, that is, control is just added to the page
+            old_audio_state = "paused"
         self.audio.pause()
         if e.control.data == "next":
             idx = self.curr_idx + 1
@@ -150,16 +147,29 @@ class AudioPlayer(ft.Container):
             idx = self.curr_idx - 1
             if idx <= 0:
                 idx = 0
-
         self.curr_idx = idx
 
-        self.audio.src = os.path.join(self.src_dir, self.src_dir_contents[idx])
-        self.song_name.value = self._sep_file_ext(os.path.basename(self.audio.src))
+        new_path = os.path.join(self.src_dir, self.src_dir_contents[self.curr_idx])
+        self.curr_song_name = self.src_dir_contents[self.curr_idx]
 
-        self.page_.overlay.append(self.audio)
-        self.play_pause_btn.icon = ft.icons.PAUSE
-        self.audio.autoplay = True
+        # if it is the same song as the old one, resume the audo and bail out
+        if old_audio_src == new_path:
+            if old_audio_state == "playing":
+                self.audio.resume()
+            return
+
+        self.audio.src = new_path
+        self.duration = self.audio.get_duration()
+
+        if old_audio_state == "playing":
+            self.play_pause_btn.icon = ft.icons.PAUSE
+            # too hacky way
+            self.audio.autoplay = True
+        elif old_audio_state == "paused":
+            self.play_pause_btn.icon = ft.icons.PLAY_ARROW
+
         self.page_.update()
+        self.audio.autoplay = False
 
     def play_pause(self, e):
         if self.playing:
@@ -172,51 +182,65 @@ class AudioPlayer(ft.Container):
             self.play_pause_btn.icon = ft.icons.PAUSE
         self.page_.update()
 
+    # executed when audio is loaded
+    def _show_controls(self, e):
+        self.seek_bar.value = 0
+        self.duration = self.audio.get_duration()
+
+        elapsed_time, duration = self._calculate_formatted_times(0)
+
+        self._update_times_row(elapsed_time, duration)
+
     def _update_controls(self, e):
-        curr_time = int(e.data)
+        curr_time = int(e.data)  # the elapsed time
         try:
-            duration = self.audio.get_duration()
-        except:
-            return
+            self.seek_bar.value = curr_time / self.duration
+        except AttributeError:
+            self.duration = self.audio.get_duration()
+        finally:
+            self.seek_bar.value = curr_time / self.duration
 
-        self.seek_bar.value = curr_time / duration
+        elapsed_time, duration = self._calculate_formatted_times(curr_time)
 
-        formatted_time_elapsed = self._format_timedelta_str(
-            str(timedelta(milliseconds=curr_time))
+        self._update_times_row(elapsed_time, duration)
+
+    def _calculate_formatted_times(self, elapsed_time: int):
+        formatted_elapsed_time = self._format_timedelta_str(
+            str(timedelta(milliseconds=elapsed_time))
         )
         formatted_time_duration = self._format_timedelta_str(
-            str(timedelta(milliseconds=duration))
+            str(timedelta(milliseconds=self.duration))
         )
 
+        return formatted_elapsed_time, formatted_time_duration
+
+    def _update_times_row(self, elapsed_time, time_duration):
         self.times_row.controls = [
-            ft.Text(formatted_time_elapsed, font_family=self.font_family),
-            ft.Text(formatted_time_duration, font_family=self.font_family),
+            ft.Text(elapsed_time, font_family=self.font_family),
+            ft.Text(time_duration, font_family=self.font_family),
         ]
 
         self.page_.update()
 
+    # request this only when you have done timedelta(milliseconds=...)
     @staticmethod
-    def _sep_file_ext(filename: str):
-        split_ = filename.split(".")
-        if len(split_) > 2:
-            return ".".join(split_[:-1])
-        else:
-            return split_[0]
-
-    def _format_timedelta_str(self, timedelta_str: str):
-        full_time = timedelta_str.split(":")
-        seconds_field = full_time[-1]
-        seconds = seconds_field.split(".")[0]
+    def _format_timedelta_str(timedelta_milliseconds_str: str):
+        time_ = timedelta_milliseconds_str.split(":")  # the whole split string
+        seconds_field = time_[-1]
+        seconds = seconds_field.split(".")[0]  # situation: 0:03:40.something
         try:
-            microseconds = seconds_field.split(".")[1]
+            microseconds = seconds_field.split(".")[1]  # if it exists
         except:
-            full_time[-1] = seconds
+            pass  # if the microseconds field doesn't exist
         else:
-            full_time[-1] = str(
-                round(float(int(seconds) + float("." + str(int(microseconds)))))
-            )
+            # basically, this is the process of rounding
+            # first, convert the parts into numbers
+            # process
+            # round the output and convert into string
+            time_[-1] = str(round(float(eval(seconds + "." + microseconds))))
 
-        if len(full_time[0]) == 1 and full_time[0] == "0":
-            del full_time[0]
+        # the hours place
+        if len(time_[0]) == 1 and time_[0] == "0":
+            del time_[0]
 
-        return ":".join(full_time)
+        return ":".join(time_)
